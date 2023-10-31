@@ -4,10 +4,13 @@ Data and scripts related to short linear motif analyses for the collaboration wi
 # Dependencies
 
 ## CRAN and Bioconductor Packages
+
+```
 if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 
-BiocManager::install(c('ggplot2', 'data.table', 'ggpubr')
+BiocManager::install(c('ggplot2', 'data.table', 'ggpubr', 'ComplexHeatmap', 'cowplot', 'parallel')
+```
 
 ## Devtools 
 
@@ -58,6 +61,26 @@ then we see an even increased difference in silac ratios for phos vs mut peptide
 ```
 See figures/slimDomain.phos_vs_mut_2.pdf
 ```
+
+## LFQ + SLiM Domain Analysis (excluding SILAC scores)
+
+The goal of this analysis is to inspect the LFQ scores in the context of SLiM-Domain 
+interactions without considering the SILAC values. 
+
+This analysis is done within an rmarkdown file which includes code, text, and figures.
+
+Usage:
+```
+/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/LFQ_slim_domain_analysis.Rmd')"
+```
+
+Output:
+```
+See figures/LFQ_slim_domain_analysis.html 
+```
+
+
+
 
 
 
