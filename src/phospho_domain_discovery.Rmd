@@ -1,0 +1,247 @@
+---
+title: "Phospho-dependent domain discovery from the array data"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+    theme: united
+author: Bora Uyar
+---
+
+`r date()`
+
+
+Import required libraries
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F, fig.height = 7, fig.width = 9)
+suppressPackageStartupMessages(library(slimR))
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(parallel))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ggpubr))
+suppressPackageStartupMessages(library(ComplexHeatmap))
+suppressPackageStartupMessages(library(cowplot))
+ggplot2::theme_set(ggpubr::theme_pubclean())
+```
+
+
+# Motivation
+
+We'd like to find out if we can detect an enrichment of phospho-dependent binding domains enriched in the array data.
+
+Matthias' idea:
+
+```
+Matthias:
+I am wondering if we can more systematically look at protein domains that might mediated interactions with phosphorylated peptides. To this end, I am thinking if the following analysis: 
+	1. Take the domain composition of all proteins in our dataset as background
+	2. Take at the domain composition of all proteins interacting in a phosphorylation-dependent manner and test for domain enrichment (hypergeometric test). This will probably show that SH2 and WW domains are enriched
+	3. Do the same for all phosphorylation-dependent interactions that cannot be explained by a known SLiM-domain pair. This could reveal novel domains interacting with phospho-SLiMs.
+I think the data in the network would be well suited for this type of analysis
+
+```
+
+I think we can build a model where we use presence/absence of protein domains to predict the LFQ score differences between phosphorylated peptides and wt/mut peptides. Basically, if a protein has a phospho-dependent domain, then its binding to the target peptide should be stronger if the peptide is phosphorylated than if it is not or if the phosphosite is mutated. 
+
+Using Phos/WT or Phos/MUT LFQ score ratios as the response variable and presence/absence of protein domains as features, we will be able to salvage all available data. If we filter the data for significant LFQ scores or SILAC scores, then we might just lose a lot of important information. 
+
+We know from our previous analysis (see `LFQ_slim_domain_analysis.Rmd`) that the known phospho-dependent slim-domain pairs have higher LFQ scores in phosphopeptides compared to WT/MUT peptides. Based on this premise, we should be able to find known phospho-dependent domains enriched in the array data. Moreover, there could be other protein domains that are not yet known to be phospho-dependent, which we could find out with the experiment here. 
+
+Importing and processing peptide info:
+```{r }
+datadir <- '/data/local/buyar/collaborations/trendelina/data'
+peptides <- data.table::fread(file.path(datadir, 'from_trendelina', 'PeptideCandidates1.txt'))
+peptides$type <- 'wt'
+peptides[grepl('_', peptides$Name)]$type <- 'mut'
+peptides[grepl('phos', peptides$Name),]$type <- 'phos'
+# remove the leading lower-case 'p' in the phosphorylated form of the sequence
+#peptides$Peptide <- gsub("p([STY])", paste0("_phos_", "\\1"), peptides$Peptide)
+peptides$Peptide <- gsub("p([STY])", "\\1", peptides$Peptide)
+# add leading and trailing "XXX" to the peptide sequence to avoid matching terminal motifs
+peptides$Peptide <- paste0('XXX',peptides$Peptide,'XXX')
+# assign experiment group ids to make it compatible with Expgroup ids in array data
+peptides$Expgroup <- ceiling(peptides$ID/3)*3-2
+```
+
+Get uniprot accessions and corresponding gene names from the fasta file of human uniprot sequences
+```{r uniprot}
+message('Importing fasta sequences')
+fasta <- Biostrings::readAAStringSet(
+  slimR::getUniprotData(outDir = datadir, format = 'fasta', update = FALSE)
+)
+uniprot2geneName <- unique(data.table('uniprotAccession' = sub("^sp\\|(.+?)\\|.+$", "\\1", names(fasta)),
+                                      'geneName' = sub("^.+ GN=(.+?) .+$", "\\1", names(fasta)),
+                                      stringsAsFactors = FALSE))
+# simplify fasta headers of fasta data
+names(fasta) <- sub("^sp\\|(.+?)\\|.*", "\\1", names(fasta))
+```
+
+Get LFQ data, process protein ids, cleanup, assign uniprot ids, get mean LFQ value per interaction from replicates
+```{r lfq}
+#import LFQ interaction results 
+lfqData <- fread(file.path(datadir, 'from_trendelina', 'LFQinteractions.txt'))
+# simplify uniprot accession/gene name fields => remove unreviewed ids and keep only one per row
+cl <- parallel::makeCluster(10)
+parallel::clusterExport(cl, varlist = c('lfqData', 'uniprot2geneName'))
+s <- pbapply::pbsapply(cl = cl, strsplit(lfqData$Protein.IDs, ";"), function(x) {
+  # pick first match
+  intersect(x, uniprot2geneName$uniprotAccession)[1]
+})
+lfqData$uniprotAccession <- s
+parallel::stopCluster(cl)
+
+lfqData <- lfqData[!is.na(uniprotAccession)]
+
+lfqData <- melt.data.table(lfqData, id.vars = 'uniprotAccession', 
+                measure.vars = grep('wt|mut|phos', colnames(lfqData), value = T))
+lfqData$variable <- as.character(lfqData$variable)
+lfqData$type <- sub("(wt|phos|mut).+", "\\1", lfqData$variable)
+lfqData$Expgroup <- gsub("\\.[0-9]+$", "", gsub("(wt|phos|mut)", "", lfqData$variable))
+
+# get mean LFQ value per interaction 
+lfqData <- lfqData[,mean(value, na.rm = T), by = c('uniprotAccession', 'type', 'Expgroup')][!is.na(V1)]
+
+
+# Normalize LFQ score across peptides
+x <- dcast(lfqData, Expgroup + type ~ uniprotAccession, value.var = 'V1')
+M <- as.matrix(data.frame(x[,-c(1,2)], row.names = paste(x$Expgroup, x$type, sep = '_')))
+M[is.na(M)] <- 15.7
+ComplexHeatmap::Heatmap(M, name = 'LFQ scores across peptides', 
+                        row_title = 'Proteins', column_title = 'Peptides', 
+                        use_raster = F, show_row_names = F, show_column_names = T)
+lfqNorm <- t(scale(M))
+ComplexHeatmap::Heatmap(lfqNorm, name = 'LFQ scores across peptides (scaled)', 
+                        row_title = 'Proteins', column_title = 'Peptides', 
+                        use_raster = F, show_row_names = F, show_column_names = T)
+
+```
+
+
+Import PFAM annotations from Uniprot and download ELM-PFAM interaction information
+```{r elm2pfam}
+message("importing PFAM domains")
+uniprot2pfam <- as.data.table(slimR::getPFAM(organism = 9606, pfam_version = "Pfam34.0"))
+uniprot2pfam <- uniprot2pfam[uniprot2pfam$seqnames %in% unique(lfqData$uniprotAccession),]
+uniprot2pfam <- unique(subset(uniprot2pfam, select = c('seqnames', 'pfam_acc', 'pfam_name', 'clan')))
+colnames(uniprot2pfam) <- c('uniprotAccession', 'PFAM', 'NAME', 'CLAN')
+pfamClans <- slimR::getPFAMClans()
+message("importing ELM -> PFAM associations")
+# download a table of ELM classes and their cognate PFAM domains
+elm2pfam <- data.table(slimR::getELMdomainInteractions())
+
+# simplify uniprot2pfam table:
+# remove proteins that don't exist in the screen
+uniprot2pfam <- uniprot2pfam[uniprotAccession %in% lfqData$uniprotAccession]
+```
+
+
+# Build a model to predict LFQ ratios phos/wt or phos/mut or phos/(wt|mut)
+
+We use pfam domains (presence/absence) as features in each protein and see if we can predict the LFQ differences between phospho vs mut/wt peptides. The domains that are most important for this prediction should be candidate phospho-dependent protein domains. 
+
+```{r}
+# create feature matrix (features are protein domains and values are 1/0 if the protein has the corresponding domain)
+domains <- unique(uniprot2pfam[uniprotAccession %in% rownames(lfqNorm)]$CLAN)
+M <- matrix(rep(0, nrow(lfqNorm) * length(domains)), nrow = nrow(lfqNorm), ncol = length(domains), 
+            dimnames = list(rownames(lfqNorm), domains))
+# for each protein, if the protein has the domain, switch value to 1
+dt <- droplevels(uniprot2pfam[uniprotAccession %in% rownames(lfqNorm)][!is.na(uniprotAccession)])
+dtl <- lapply(split(dt, dt$uniprotAccession), function(x) unique(x$CLAN))
+
+counts <- do.call(rbind, lapply(rownames(M), function(p) {
+  x <- M[p,]
+  if(p %in% names(dtl)) {
+      x[dtl[[p]]] <- 1
+  }
+  return(x)
+}))
+rownames(counts) <- rownames(M)
+
+```
+
+Now, I extract a single score per protein that reflects its propensity to preferentially bind to phospho version of the same peptide compared to mut/wt versions. 
+
+```{r}
+# compute mean phos - mean mut
+phos_index <- grep('phos', colnames(lfqNorm))
+mut_index <- grep('mut', colnames(lfqNorm))
+wt_index <- grep('wt', colnames(lfqNorm))
+non_phos_index <- grep('phos', colnames(lfqNorm), invert = T)
+y <- as.numeric(apply(lfqNorm, 1, function(x) {
+ mean(x[phos_index]) - mean(x[mut_index])
+}))
+
+# data frame with domain counts and response variable
+df <- data.frame(counts)
+df$y <- y # lfq phos - mut
+
+```
+
+
+Now I build a model on 70% of samples and evaluate the model on the remaining 30% 
+```{r}
+
+train_samples <- sample(rownames(df), nrow(df) * 0.7)
+test_samples <- setdiff(rownames(df), train_samples)
+
+df.train <- df[train_samples, ]
+df.test <- df[test_samples,]
+
+fit1 <- train_caret(df.train, algorithm = 'glmnet', ppOpts = c('scale', 'center'), folds = 5)
+evaluate_regression_model(y = df.test$y, y_hat = stats::predict(fit1, df.test))
+
+# get features
+top <- compute_importance(fit1)[val > 0][['feature']]
+fit2 <- train_caret(df.train[,c(top,'y')], algorithm = 'glmnet', 
+                    ppOpts = c('scale', 'center'), folds = 5)
+
+imp <- compute_importance(fit2)
+colnames(imp)[1] <- 'CLAN'
+
+imp$domains <- sapply(imp$CLAN, function(x) {
+  paste(unique(uniprot2pfam[uniprotAccession %in% rownames(lfqNorm)][x == CLAN]$NAME), collapse = '; ')
+})
+imp[1:5]
+evaluate_regression_model(y = df.test$y, y_hat = stats::predict(fit2, df.test))
+
+```
+
+
+Get list of known phospho-dependent slim-domain pairs
+```{r}
+elms <- slimR::getElmClasses()
+pat <- "(\\(\\[[ST]+\\]\\)|\\([YTS]\\))"
+e <- names(grep(pat, unlist(elms[grep('MOD|TRG', names(elms), invert = T)]), value = T))
+elm2pfam[ELM_identifier %in% e]$Interaction_Domain_Name
+```
+
+Although we find the WW and SH2 in top 5, still they explain a small portion of the variation because these domains are detected in 3 and 10 proteins out of 2000. 
+
+So, maybe it is better to do this with a hypergeometric test. Find proteins with significantly high phos/wt phos/mut 
+ratios and do a domain/clan enrichment analysis.
+
+```{r}
+phos_index <- grep('phos', colnames(lfqNorm))
+non_phos_index <- grep('phos', colnames(lfqNorm), invert = T)
+pvals <- as.numeric(apply(lfqNorm, 1, function(x) {
+ wilcox.test(x[phos_index], x[non_phos_index], alternative = 'greater')[['p.value']]
+}))
+
+# count pfam clans in proteins and categorize by p-vals
+colSums(counts[pvals < 0.05,])
+colSums(counts[pvals >= 0.05,])
+
+```
+
+With this approach we find only 30 proteins with significant pvalues and most clans are found in only 1 or 2 proteins. 
+It is too sparse to do hypergeometric tests. 
+
+
+# Session Info
+```{r}
+print(sessionInfo())
+```
+
