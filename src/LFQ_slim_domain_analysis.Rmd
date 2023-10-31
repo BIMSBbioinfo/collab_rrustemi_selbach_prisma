@@ -15,34 +15,11 @@ author: Bora Uyar
 
 # Motivation
 
-Matthias asked me to inspect the LFQ scores in the context of SLiM-Domain interactions without considering the SILAC values. 
+The goal of this analysis is to inspect the LFQ scores in the context of SLiM-Domain interactions without considering the SILAC values. 
 
-```
-Matthias:
-We are continuing to work on the paper. One question that came up is if you looked at the SLiM-PFAM analysis for the LFQ data alone (that is, not looking at the SILAC data). I was thinking on the following analysis: 
-
-From the proteomics screen, find out if LFQ values of
+Approach: From the proteomics screen, find out if LFQ values of
 the interactions that can be explained by slim-domain pairs
 are higher than the LFQ values of the background distribution.
-
-1. For every pulldown, select the proteins contaiing a PFAM domain that fits
-to a SLiM in the peptide that was used in that pulldown.
-2. Compute the
-difference between the LFQ value of the protein in this pulldown versus the
-LFQ value in all other pulldowns. Note that we have 3 replicates for every
-peptide pulldown, so you could first compute the mean/median of these 3
-replicates.
-3. As negative control, take LFQ value differences from randomly
-select pulldowns (not looking at SLiM-PFAM pairs, just taking the protein LFQ
-value from any pulldown and computing the differences to all other pulldowns)
-4. Compare the distributions of the differences from 2 and 3. The expectation
-would be that LFQ value differences tend to be positive for actual SLiM-PFAM
-pairs but not for the randomly selected data.
-```
-
-# Method
-
-I modified what Matthias suggested above to the following procedure:
 
 - For each protein, I find the mean LFQ value of the protein with all peptides (including all genotypes: wt/phos/mut)
 - Then I convert the LFQ value to a z-score (proteins with a NA value are converted to minimum LFQ value observed in the screen ~ 15.7). Thus, we can compare LFQ values across proteins. A high z-score means the protein preferentially binds to the target peptide. 
@@ -60,13 +37,19 @@ suppressPackageStartupMessages(library(ggplot2))
 suppressPackageStartupMessages(library(ggpubr))
 suppressPackageStartupMessages(library(ComplexHeatmap))
 suppressPackageStartupMessages(library(cowplot))
+
+data.table::setDTthreads(12)
 ggplot2::theme_set(ggpubr::theme_pubclean())
+datadir <- '../data'
+figureDir <- '../figures'
+tableDir <- '../tables'
+
+knitr::opts_knit$set(root.dir = figureDir)
 ```
 
 Importing and processing peptide info:
-```{r }
-datadir <- '/data/local/buyar/collaborations/trendelina/data'
-peptides <- data.table::fread(file.path(datadir, 'from_trendelina', 'PeptideCandidates1.txt'))
+```{r}
+peptides <- data.table::fread(file.path(datadir, 'PeptideCandidates1.txt'))
 peptides$type <- 'wt'
 peptides[grepl('_', peptides$Name)]$type <- 'mut'
 peptides[grepl('phos', peptides$Name),]$type <- 'phos'
@@ -81,15 +64,13 @@ peptides$Expgroup <- ceiling(peptides$ID/3)*3-2
 
 Get ELM classes
 ```{r elm}
-elms <- slimR::getElmClasses()
+elms <- readRDS(file.path(datadir, 'elm_classes.RDS'))
 ```
 
 Get uniprot accessions and corresponding gene names from the fasta file of human uniprot sequences
 ```{r uniprot}
 message('Importing fasta sequences')
-fasta <- Biostrings::readAAStringSet(
-  slimR::getUniprotData(outDir = datadir, format = 'fasta', update = FALSE)
-)
+fasta <- Biostrings::readAAStringSet(file.path(datadir, 'uniprot.9606.Nov_1_2021.fasta'))
 uniprot2geneName <- unique(data.table('uniprotAccession' = sub("^sp\\|(.+?)\\|.+$", "\\1", names(fasta)),
                                       'geneName' = sub("^.+ GN=(.+?) .+$", "\\1", names(fasta)),
                                       stringsAsFactors = FALSE))
@@ -100,7 +81,7 @@ names(fasta) <- sub("^sp\\|(.+?)\\|.*", "\\1", names(fasta))
 Get LFQ data, process protein ids, cleanup, assign uniprot ids, get mean LFQ value per interaction from replicates
 ```{r lfq}
 #import LFQ interaction results 
-lfqData <- fread(file.path(datadir, 'from_trendelina', 'LFQinteractions.txt'))
+lfqData <- fread(file.path(datadir, 'LFQinteractions.txt'))
 # simplify uniprot accession/gene name fields => remove unreviewed ids and keep only one per row
 cl <- parallel::makeCluster(10)
 parallel::clusterExport(cl, varlist = c('lfqData', 'uniprot2geneName'))
@@ -126,14 +107,13 @@ lfqData <- lfqData[,mean(value, na.rm = T), by = c('uniprotAccession', 'type', '
 Import PFAM annotations from Uniprot and download ELM-PFAM interaction information
 ```{r elm2pfam}
 message("importing PFAM domains")
-uniprot2pfam <- as.data.table(slimR::getPFAM(organism = 9606, pfam_version = "Pfam34.0"))
+uniprot2pfam <- readRDS(file.path(datadir, 'uniprot2pfam.RDS'))
 uniprot2pfam <- uniprot2pfam[uniprot2pfam$seqnames %in% unique(lfqData$uniprotAccession),]
 uniprot2pfam <- unique(subset(uniprot2pfam, select = c('seqnames', 'pfam_acc', 'pfam_name', 'clan')))
 colnames(uniprot2pfam) <- c('uniprotAccession', 'PFAM', 'NAME', 'CLAN')
-pfamClans <- slimR::getPFAMClans()
 message("importing ELM -> PFAM associations")
 # download a table of ELM classes and their cognate PFAM domains
-elm2pfam <- data.table(slimR::getELMdomainInteractions())
+elm2pfam <- readRDS(file.path(datadir, 'elm2pfam.RDS'))
 
 # simplify uniprot2pfam table:
 # remove proteins that don't exist in the screen
@@ -172,7 +152,6 @@ slimDomainInteractions <- dcast.data.table(slimDomainInteractions,
                                            Expgroup + uniprotAccession ~ genotype,
                                            value.var = 'slim_domain_pairs')
 slimDomainInteractions$Expgroup <- as.character(slimDomainInteractions$Expgroup)
-
 ```
 
 # Normalize LFQ score across peptides
@@ -194,15 +173,17 @@ M[is.na(M)] <- 15.7
 We can observe that some proteins will have high LFQ values for all peptides, while some proteins will have low LFQ values for all peptides. Normalizing the LFQ values to z-scores w.r.t overall interactions, allows us to make them comparable. 
 
 ```{r}
-ComplexHeatmap::Heatmap(t(M), name = 'LFQ scores across peptides', row_title = 'Proteins', column_title = 'Peptides', use_raster = F, show_row_names = F, show_column_names = T)
+ComplexHeatmap::Heatmap(t(M), name = 'LFQ scores across peptides', row_title = 'Proteins', column_title = 'Peptides', use_raster = F, show_row_names = F, show_column_names = F)
 ```
 
 ## After normalising by peptide
 Scaling each row, assigns z-scores to each protein (normalizing w.r.t other peptides)
 ```{r }
 M <- t(scale(M)) # (each protein is normalised w.r.t other peptides)
-ComplexHeatmap::Heatmap(M, name = 'LFQ scores across peptides', row_title = 'Proteins', column_title = 'Peptides', use_raster = F, show_row_names = F, show_column_names = T)
-write.table(M, file = 'LFQinteractions.scaled_by_peptide.tsv', sep = '\t', quote = F)
+ComplexHeatmap::Heatmap(M, name = 'LFQ scores across peptides', row_title = 'Proteins', column_title = 'Peptides', use_raster = F, show_row_names = F, show_column_names = F)
+write.table(M, file = file.path(tableDir, 
+                                'LFQinteractions.scaled_by_peptide.tsv'),
+            sep = '\t', quote = F)
 ```
 
 Now, we can see blocks of red cells that have high z-scores for groups of proteins. 
@@ -230,83 +211,45 @@ lfqMerged[type == 'wt'][!is.na(wt.slim_domain_pairs)]$paired <- TRUE
 lfqMerged[type == 'mut'][!is.na(mut.slim_domain_pairs)]$paired <- TRUE
 lfqMerged[type == 'phos'][!is.na(phos.slim_domain_pairs)]$paired <- TRUE
 
-write.table(lfqMerged, file = 'LFQscaled_slim_domain_interactions.tsv', sep = '\t', quote = F)
+write.table(lfqMerged, file = file.path(tableDir, 
+                                        'LFQscaled_slim_domain_interactions.tsv'), sep = '\t', quote = F)
 
 ```
 
-We can see the LFQ values for paired interactions are higher than the rest. However, this seems to be true for all genotypes (phos/wt/mut)
+We can see the LFQ values for paired interactions are higher than the rest. However, this seems to be true for all genotypes (phos/wt/mut). This can be explained by the fact that slim-domain pairs we defined may not be phosphorylation dependent docking motifs. For example, a lot of slim-domain pairs are defined where the peptide has a "MOD" type motif (e.g. MOD_GSK3) and the interacting protein has a Pkinase domain. This is a valid ELM-PFAM pair, however, this doesn't mean the protein with the kinase domain will dock onto this peptide.
 
 ```{r}
 ggplot(lfqMerged, aes(x = value)) + geom_density(aes(fill = paired), alpha = 0.4) + 
   facet_wrap(~ type, ncol = 1) + labs(x = 'LFQ z-score', fill = 'SLiM-Domain Interaction')
-ggsave(filename = 'lfq_zscore_vs_slimdomain_interactions.pdf', width = 10, height = 8)
+ggsave(filename = file.path(figureDir, 
+                            'lfq_zscore_vs_slimdomain_interactions.pdf'), width = 10, height = 8)
 ```
 
-Comparing LFQ values for peptides where the phos peptide has a matching SLiM and the 
-interaction partner has a cognate PFAM domain. I make this plot to observe if phos peptides 
-have higher values than the wt/mut peptides, which is not directly visible in the above density plot. 
-Testing to see if phos has greater values than wt/mut: the p-values are close to 0.05 but the 
-effect size seems very small. Hard to tell the difference. 
-```{r}
-ggboxplot(lfqMerged[paired == TRUE], x = 'type', y = 'value', color = 'type',
-          add = 'jitter') + stat_compare_means(method.args = list('alternative' = 'greater'), 
-                                               comparisons = list(c('phos', 'wt'),
-                                                                  c('phos', 'mut')))
-```
-
-
-After this analysis, we realize that a lot of the slim-domain pairs I defined may not be phosphorylation dependent docking motifs. For example, a lot of slim-domain pairs a defined where the peptide has a "MOD" type motif (e.g. MOD_GSK3) and the interacting protein has a Pkinase domain. This is a valid ELM-PFAM pair, however, you are right that this doesn't mean the protein with the kinase domain will dock onto this peptide.
-
-So, I looked into the interactions categorized by interacting domain and compared phos/wt/mut (only looking into the peptides where the phos-peptide has the matching motif type)
-```{r}
-domains <- names(sort(table(gsub("->.+$", "", unlist(strsplit(slimDomainInteractions$phos.slim_domain_pairs, "; ")))), decreasing = T)[1:6])
-
-# for each domain type, compare phos/mut/wt by LFQ values for paired interactions
-plots <- sapply(simplify = F, domains, function(d) {
-  message(d)
-  ggviolin(lfqMerged[grep(d, phos.slim_domain_pairs)],
-            x = 'type', y = 'value', add = 'jitter', color = 'type') + 
-    labs(title = d) + stat_compare_means(method.args = list('alternative' = 'greater'), 
-                                               comparisons = list(c('phos', 'wt'),
-                                                                  c('phos', 'mut')))
-})
-
-cowplot::plot_grid(plotlist = plots, nrow = 3)
-```
-
-I only plotted the top 6 domains (the remaining ones have few matches). We can see that the phos genotype has higher LFQ values for SH2 and WW domains, but not for others. It is because Arm and SH3_1 are not phospho-dependent domains and Pkinase does not dock onto the peptide. WD40 can recognized both targeting motifs and also some phosphorylated degrons. 
-
-Only thing I can't explain here is (even if I focus on the degron targets of WD40), phos does not have higher values than wt/mut. Could it be because the degrons need double-phosphorylation? 
-```{r}
-ggboxplot(lfqMerged[grep('DEG', phos.slim_domain_pairs)][grep('WD40', phos.slim_domain_pairs)],
-          x = 'type', y = 'value', color = 'type', add = 'jitter')
-```
-
-Finally, I decided to categorize slim-domain pairs by if the peptide has a phosphorylation dependent docking/ligand/degron motif and the interaction partner has a cognate domain. 
-
-If we focus on slim-domain pairs, where the peptide has a phosphorylation dependent docking/ligand/degron motif (excluding modification/targeting motifs), then we see the normalized LFQ scores for phos peptides are higher than both wt/mut peptides. 
+Therefore, we categorize slim-domain pairs by if the peptide has a phosphorylation dependent docking/ligand/degron motif and the interaction partner has a cognate domain. If we focus on slim-domain pairs, where the peptide has a phosphorylation dependent docking/ligand/degron motif (excluding modification/targeting/cleavage motifs), then we see the normalized LFQ scores for phos peptides are higher than both wt/mut peptides. 
 
 ```{r}
 pat <- "(\\(\\[[ST]+\\]\\)|\\([YTS]\\))"
-e <- names(grep(pat, unlist(elms[grep('MOD|TRG', names(elms), invert = T)]), value = T))
+e <- names(grep(pat, unlist(elms[grep('MOD|TRG|CLV', names(elms), invert = T)]), value = T))
 lfqMerged$phosDependentMotifs <- unlist(lapply(strsplit(lfqMerged$phos.slim_domain_pairs, "; "), function(x) sum(gsub("^.+->", "", x) %in% e)))
 
 ggboxplot(lfqMerged[phosDependentMotifs > 0], x = 'type', y = 'value', color = 'type',
          add = 'jitter') + stat_compare_means(method.args = list('alternative' = 'greater'), 
                                                comparisons = list(c('phos', 'wt'),
                                                                   c('phos', 'mut')))
+ggsave(filename = file.path(figureDir, 
+                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig_deg.pdf'), width = 10, height = 8)
+
 ```
 
-
-If I also exclude the degron motifs, which require double phosphorylation, then I see an even stronger difference. 
+If we also exclude the degron motifs, which require double phosphorylation, then we see an even stronger difference. 
 ```{r}
 ggboxplot(lfqMerged[phosDependentMotifs > 0][grep('DEG', phos.slim_domain_pairs, invert = T)], x = 'type', y = 'value', color = 'type',
          add = 'jitter') + stat_compare_means(method.args = list('alternative' = 'greater'), 
                                                comparisons = list(c('phos', 'wt'),
                                                                   c('phos', 'mut')))
-
+ggsave(filename = file.path(figureDir, 
+                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig.pdf'), width = 10, height = 8)
 ```
-
 
 # Summary
 
@@ -314,10 +257,9 @@ When I look into the LFQ values normalized across peptides, I see a higher z-sco
 for slim-domain paired protein-peptide interactions. However, this is true for 
 all genotypes. I would expect to see that e.g. phosphopeptides have a higher z-score
 compared to wild-type or mutant peptides. Following up on this, we decided to 
-categorize such slim-domain pairs by if the interaction is expected to be a phosphorylation-dependedt docking interaction (excluding targeting/modification motifs). Then we observe that the 
+categorize such slim-domain pairs by if the interaction is expected to be a phosphorylation-dependent docking interaction (excluding targeting/modification motifs). Then we observe that the 
 phos peptides have higher scores than both wt/mut peptides. An interesting group are the degrons, which usually require double phosphorylation sites. The difference between phos and wt/mut get 
-even bigger if we exclude degrons. This could be because degrons require double phosphorylation sites, while the peptides in the screen might be designed with only a single phosphorylation. 
-
+even bigger if we exclude degrons. This could be because degrons require double phosphorylation sites, while the peptides in the screen were designed with only a single phosphorylation. 
 
 # Session Info
 ```{r}
