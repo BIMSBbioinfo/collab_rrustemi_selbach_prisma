@@ -52,8 +52,7 @@ We know from our previous analysis (see `LFQ_slim_domain_analysis.Rmd`) that the
 
 Importing and processing peptide info:
 ```{r }
-datadir <- '/data/local/buyar/collaborations/trendelina/data'
-peptides <- data.table::fread(file.path(datadir, 'from_trendelina', 'PeptideCandidates1.txt'))
+peptides <- data.table::fread(file.path(datadir,  'PeptideCandidates1.txt'))
 peptides$type <- 'wt'
 peptides[grepl('_', peptides$Name)]$type <- 'mut'
 peptides[grepl('phos', peptides$Name),]$type <- 'phos'
@@ -69,9 +68,7 @@ peptides$Expgroup <- ceiling(peptides$ID/3)*3-2
 Get uniprot accessions and corresponding gene names from the fasta file of human uniprot sequences
 ```{r uniprot}
 message('Importing fasta sequences')
-fasta <- Biostrings::readAAStringSet(
-  slimR::getUniprotData(outDir = datadir, format = 'fasta', update = FALSE)
-)
+fasta <- Biostrings::readAAStringSet(file.path(datadir, 'uniprot.9606.Nov_1_2021.fasta'))
 uniprot2geneName <- unique(data.table('uniprotAccession' = sub("^sp\\|(.+?)\\|.+$", "\\1", names(fasta)),
                                       'geneName' = sub("^.+ GN=(.+?) .+$", "\\1", names(fasta)),
                                       stringsAsFactors = FALSE))
@@ -82,7 +79,7 @@ names(fasta) <- sub("^sp\\|(.+?)\\|.*", "\\1", names(fasta))
 Get LFQ data, process protein ids, cleanup, assign uniprot ids, get mean LFQ value per interaction from replicates
 ```{r lfq}
 #import LFQ interaction results 
-lfqData <- fread(file.path(datadir, 'from_trendelina', 'LFQinteractions.txt'))
+lfqData <- fread(file.path(datadir, 'LFQinteractions.txt'))
 # simplify uniprot accession/gene name fields => remove unreviewed ids and keep only one per row
 cl <- parallel::makeCluster(10)
 parallel::clusterExport(cl, varlist = c('lfqData', 'uniprot2geneName'))
@@ -104,33 +101,23 @@ lfqData$Expgroup <- gsub("\\.[0-9]+$", "", gsub("(wt|phos|mut)", "", lfqData$var
 # get mean LFQ value per interaction 
 lfqData <- lfqData[,mean(value, na.rm = T), by = c('uniprotAccession', 'type', 'Expgroup')][!is.na(V1)]
 
-
 # Normalize LFQ score across peptides
 x <- dcast(lfqData, Expgroup + type ~ uniprotAccession, value.var = 'V1')
 M <- as.matrix(data.frame(x[,-c(1,2)], row.names = paste(x$Expgroup, x$type, sep = '_')))
 M[is.na(M)] <- 15.7
-ComplexHeatmap::Heatmap(M, name = 'LFQ scores across peptides', 
-                        row_title = 'Proteins', column_title = 'Peptides', 
-                        use_raster = F, show_row_names = F, show_column_names = T)
 lfqNorm <- t(scale(M))
-ComplexHeatmap::Heatmap(lfqNorm, name = 'LFQ scores across peptides (scaled)', 
-                        row_title = 'Proteins', column_title = 'Peptides', 
-                        use_raster = F, show_row_names = F, show_column_names = T)
-
 ```
-
 
 Import PFAM annotations from Uniprot and download ELM-PFAM interaction information
 ```{r elm2pfam}
 message("importing PFAM domains")
-uniprot2pfam <- as.data.table(slimR::getPFAM(organism = 9606, pfam_version = "Pfam34.0"))
+uniprot2pfam <- readRDS(file.path(datadir, 'uniprot2pfam.RDS'))
 uniprot2pfam <- uniprot2pfam[uniprot2pfam$seqnames %in% unique(lfqData$uniprotAccession),]
 uniprot2pfam <- unique(subset(uniprot2pfam, select = c('seqnames', 'pfam_acc', 'pfam_name', 'clan')))
 colnames(uniprot2pfam) <- c('uniprotAccession', 'PFAM', 'NAME', 'CLAN')
-pfamClans <- slimR::getPFAMClans()
 message("importing ELM -> PFAM associations")
 # download a table of ELM classes and their cognate PFAM domains
-elm2pfam <- data.table(slimR::getELMdomainInteractions())
+elm2pfam <- readRDS(file.path(datadir, 'elm2pfam.RDS'))
 
 # simplify uniprot2pfam table:
 # remove proteins that don't exist in the screen
@@ -140,16 +127,23 @@ uniprot2pfam <- uniprot2pfam[uniprotAccession %in% lfqData$uniprotAccession]
 
 # Build a model to predict LFQ ratios phos/wt or phos/mut or phos/(wt|mut)
 
-We use pfam domains (presence/absence) as features in each protein and see if we can predict the LFQ differences between phospho vs mut/wt peptides. The domains that are most important for this prediction should be candidate phospho-dependent protein domains. 
+Now, I extract a single score per protein that reflects its propensity to preferentially bind to phospho version of the same peptide compared to mut/wt versions. 
+
+Get list of known phospho-dependent slim-domain pairs
+```{r}
+elms <- readRDS(file.path(datadir, 'elm_classes.RDS'))
+pat <- "(\\(\\[[ST]+\\]\\)|\\([YTS]\\))"
+e <- names(grep(pat, unlist(elms[grep('MOD|TRG', names(elms), invert = T)]), value = T))
+```
 
 ```{r}
 # create feature matrix (features are protein domains and values are 1/0 if the protein has the corresponding domain)
-domains <- unique(uniprot2pfam[uniprotAccession %in% rownames(lfqNorm)]$CLAN)
-M <- matrix(rep(0, nrow(lfqNorm) * length(domains)), nrow = nrow(lfqNorm), ncol = length(domains), 
+domains <- unique(uniprot2pfam[uniprotAccession %in% rownames(lfqNorm)]$NAME)
+M <- matrix(rep(0, nrow(lfqNorm) * length(domains)), nrow = nrow(lfqNorm), ncol = length(domains),
             dimnames = list(rownames(lfqNorm), domains))
 # for each protein, if the protein has the domain, switch value to 1
 dt <- droplevels(uniprot2pfam[uniprotAccession %in% rownames(lfqNorm)][!is.na(uniprotAccession)])
-dtl <- lapply(split(dt, dt$uniprotAccession), function(x) unique(x$CLAN))
+dtl <- lapply(split(dt, dt$uniprotAccession), function(x) unique(x$NAME))
 
 counts <- do.call(rbind, lapply(rownames(M), function(p) {
   x <- M[p,]
@@ -159,66 +153,7 @@ counts <- do.call(rbind, lapply(rownames(M), function(p) {
   return(x)
 }))
 rownames(counts) <- rownames(M)
-
 ```
-
-Now, I extract a single score per protein that reflects its propensity to preferentially bind to phospho version of the same peptide compared to mut/wt versions. 
-
-```{r}
-# compute mean phos - mean mut
-phos_index <- grep('phos', colnames(lfqNorm))
-mut_index <- grep('mut', colnames(lfqNorm))
-wt_index <- grep('wt', colnames(lfqNorm))
-non_phos_index <- grep('phos', colnames(lfqNorm), invert = T)
-y <- as.numeric(apply(lfqNorm, 1, function(x) {
- mean(x[phos_index]) - mean(x[mut_index])
-}))
-
-# data frame with domain counts and response variable
-df <- data.frame(counts)
-df$y <- y # lfq phos - mut
-
-```
-
-
-Now I build a model on 70% of samples and evaluate the model on the remaining 30% 
-```{r}
-
-train_samples <- sample(rownames(df), nrow(df) * 0.7)
-test_samples <- setdiff(rownames(df), train_samples)
-
-df.train <- df[train_samples, ]
-df.test <- df[test_samples,]
-
-fit1 <- train_caret(df.train, algorithm = 'glmnet', ppOpts = c('scale', 'center'), folds = 5)
-evaluate_regression_model(y = df.test$y, y_hat = stats::predict(fit1, df.test))
-
-# get features
-top <- compute_importance(fit1)[val > 0][['feature']]
-fit2 <- train_caret(df.train[,c(top,'y')], algorithm = 'glmnet', 
-                    ppOpts = c('scale', 'center'), folds = 5)
-
-imp <- compute_importance(fit2)
-colnames(imp)[1] <- 'CLAN'
-
-imp$domains <- sapply(imp$CLAN, function(x) {
-  paste(unique(uniprot2pfam[uniprotAccession %in% rownames(lfqNorm)][x == CLAN]$NAME), collapse = '; ')
-})
-imp[1:5]
-evaluate_regression_model(y = df.test$y, y_hat = stats::predict(fit2, df.test))
-
-```
-
-
-Get list of known phospho-dependent slim-domain pairs
-```{r}
-elms <- slimR::getElmClasses()
-pat <- "(\\(\\[[ST]+\\]\\)|\\([YTS]\\))"
-e <- names(grep(pat, unlist(elms[grep('MOD|TRG', names(elms), invert = T)]), value = T))
-elm2pfam[ELM_identifier %in% e]$Interaction_Domain_Name
-```
-
-Although we find the WW and SH2 in top 5, still they explain a small portion of the variation because these domains are detected in 3 and 10 proteins out of 2000. 
 
 So, maybe it is better to do this with a hypergeometric test. Find proteins with significantly high phos/wt phos/mut 
 ratios and do a domain/clan enrichment analysis.
