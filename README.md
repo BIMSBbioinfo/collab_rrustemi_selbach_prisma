@@ -1,5 +1,11 @@
-# collab_rrustemi_selbach_prisma
-Data and scripts related to short linear motif analyses for the collaboration with Trendelina Rrustemi from Matthias Selbach's Lab.
+# Description
+
+Data and scripts related to short linear motif analyses for the collaboration project titled 
+**"Pathogenic mutations of human phosphorylation sites affect protein-protein interactions"** with Trendelina Rrustemi from Matthias Selbach's Lab.
+
+# Publications
+
+See the manuscript on Biorxiv [here](https://www.biorxiv.org/content/10.1101/2023.08.01.551433v1.full).
 
 # Dependencies
 
