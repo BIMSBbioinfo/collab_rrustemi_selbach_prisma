@@ -37,7 +37,6 @@ uniprot2geneName <- unique(data.table('uniprotAccession' = sub("^sp\\|(.+?)\\|.+
 # simplify fasta headers of fasta data
 names(fasta) <- sub("^sp\\|(.+?)\\|.*", "\\1", names(fasta))
 
-#import peptide-array results table from Katrina
 arrayDataFile <- file.path(datadir, 'SILACLFQ_extended_loose_p001FD_1.txt')
 arrayData <- data.table::fread(arrayDataFile)
 # simplify uniprot accession/gene name fields => remove unreviewed ids and keep only one per row

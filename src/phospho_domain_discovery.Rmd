@@ -24,7 +24,9 @@ suppressPackageStartupMessages(library(ggplot2))
 suppressPackageStartupMessages(library(ggpubr))
 suppressPackageStartupMessages(library(ComplexHeatmap))
 suppressPackageStartupMessages(library(cowplot))
+
 ggplot2::theme_set(ggpubr::theme_pubclean())
+data.table::setDTthreads(12)
 ```
 
 
@@ -32,26 +34,13 @@ ggplot2::theme_set(ggpubr::theme_pubclean())
 
 We'd like to find out if we can detect an enrichment of phospho-dependent binding domains enriched in the array data.
 
-Matthias' idea:
+We look for proteins that  
 
-```
-Matthias:
-I am wondering if we can more systematically look at protein domains that might mediated interactions with phosphorylated peptides. To this end, I am thinking if the following analysis: 
-	1. Take the domain composition of all proteins in our dataset as background
-	2. Take at the domain composition of all proteins interacting in a phosphorylation-dependent manner and test for domain enrichment (hypergeometric test). This will probably show that SH2 and WW domains are enriched
-	3. Do the same for all phosphorylation-dependent interactions that cannot be explained by a known SLiM-domain pair. This could reveal novel domains interacting with phospho-SLiMs.
-I think the data in the network would be well suited for this type of analysis
-
-```
-
-I think we can build a model where we use presence/absence of protein domains to predict the LFQ score differences between phosphorylated peptides and wt/mut peptides. Basically, if a protein has a phospho-dependent domain, then its binding to the target peptide should be stronger if the peptide is phosphorylated than if it is not or if the phosphosite is mutated. 
-
-Using Phos/WT or Phos/MUT LFQ score ratios as the response variable and presence/absence of protein domains as features, we will be able to salvage all available data. If we filter the data for significant LFQ scores or SILAC scores, then we might just lose a lot of important information. 
-
-We know from our previous analysis (see `LFQ_slim_domain_analysis.Rmd`) that the known phospho-dependent slim-domain pairs have higher LFQ scores in phosphopeptides compared to WT/MUT peptides. Based on this premise, we should be able to find known phospho-dependent domains enriched in the array data. Moreover, there could be other protein domains that are not yet known to be phospho-dependent, which we could find out with the experiment here. 
+# Data preparation
 
 Importing and processing peptide info:
 ```{r }
+datadir <- '../data/'
 peptides <- data.table::fread(file.path(datadir,  'PeptideCandidates1.txt'))
 peptides$type <- 'wt'
 peptides[grepl('_', peptides$Name)]$type <- 'mut'
@@ -101,7 +90,7 @@ lfqData$Expgroup <- gsub("\\.[0-9]+$", "", gsub("(wt|phos|mut)", "", lfqData$var
 # get mean LFQ value per interaction 
 lfqData <- lfqData[,mean(value, na.rm = T), by = c('uniprotAccession', 'type', 'Expgroup')][!is.na(V1)]
 
-# Normalize LFQ score across peptides
+# normalize lfqData
 x <- dcast(lfqData, Expgroup + type ~ uniprotAccession, value.var = 'V1')
 M <- as.matrix(data.frame(x[,-c(1,2)], row.names = paste(x$Expgroup, x$type, sep = '_')))
 M[is.na(M)] <- 15.7
@@ -125,15 +114,12 @@ uniprot2pfam <- uniprot2pfam[uniprotAccession %in% lfqData$uniprotAccession]
 ```
 
 
-# Build a model to predict LFQ ratios phos/wt or phos/mut or phos/(wt|mut)
-
-Now, I extract a single score per protein that reflects its propensity to preferentially bind to phospho version of the same peptide compared to mut/wt versions. 
-
 Get list of known phospho-dependent slim-domain pairs
 ```{r}
 elms <- readRDS(file.path(datadir, 'elm_classes.RDS'))
 pat <- "(\\(\\[[ST]+\\]\\)|\\([YTS]\\))"
-e <- names(grep(pat, unlist(elms[grep('MOD|TRG', names(elms), invert = T)]), value = T))
+phos_elms <- names(grep(pat, unlist(elms[grep('MOD|TRG|CLV', names(elms), invert = T)]), value = T))
+phos_domains <- unique(elm2pfam[ELM_identifier %in% phos_elms]$Interaction_Domain_Name)
 ```
 
 ```{r}
@@ -153,27 +139,120 @@ counts <- do.call(rbind, lapply(rownames(M), function(p) {
   return(x)
 }))
 rownames(counts) <- rownames(M)
+phos_domains <- intersect(colnames(counts), phos_domains)
+
 ```
 
-So, maybe it is better to do this with a hypergeometric test. Find proteins with significantly high phos/wt phos/mut 
-ratios and do a domain/clan enrichment analysis.
+Import Array Data (LFQ + SILAC dataset)
 
 ```{r}
-phos_index <- grep('phos', colnames(lfqNorm))
-non_phos_index <- grep('phos', colnames(lfqNorm), invert = T)
-pvals <- as.numeric(apply(lfqNorm, 1, function(x) {
- wilcox.test(x[phos_index], x[non_phos_index], alternative = 'greater')[['p.value']]
-}))
+arrayDataFile <- file.path(datadir, 'SILACLFQ_extended_loose_p001FD_1.txt')
+arrayData <- data.table::fread(arrayDataFile)
+# simplify uniprot accession/gene name fields => remove unreviewed ids and keep only one per row
+cl <- parallel::makeCluster(10)
+parallel::clusterExport(cl, varlist = c('arrayData', 'uniprot2geneName'))
+s <- pbapply::pbsapply(cl = cl, strsplit(arrayData$Majority.protein.IDs, ";"), function(x) {
+  # pick first match
+  intersect(x, uniprot2geneName$uniprotAccession)[1]
+})
+arrayData$uniprotAccession <- s
+parallel::stopCluster(cl)
 
-# count pfam clans in proteins and categorize by p-vals
-colSums(counts[pvals < 0.05,])
-colSums(counts[pvals >= 0.05,])
+# modify arrayData to have one line per protein & peptide in the screen
+arrayData$SILACGroup <- gsub("[0-9]+$", "", arrayData$SILACGroup)
+colnames(arrayData) <- gsub("_", ".", gsub("LFQsignificant", "lfq_", colnames(arrayData)))
+
+arrayData <- data.table::dcast.data.table(arrayData[!is.na(uniprotAccession)],
+                 Expgroup + uniprotAccession + lfq.Wt.loose + lfq.Phos.loose + lfq.Mut.loose ~ SILACGroup,
+                 value.var = 'Median.SILAC.ratio')
+# keep interactions that are not NA for any silac values
+to_keep <- apply(arrayData[,c('phos_mut', 'wt_mut', 'wt_phos')], 1, function(x) sum(!is.na(x)) == 3)
+arrayData <- arrayData[to_keep]
+```
+
+# Domain Enrichment Analysis 
+
+The first approach is to do a hypergeometric test to see which domains are enriched among proteins that preferentially bind phosphorylated forms of the peptides compared to the background (universal set of proteins detected in the screen).
+
+Find proteins that are LFQ+ for phosphorylated form of the peptide. 
+For each domain, count the number of proteins containing the domain among this population and compare to the background distribution. 
+
+
+```{r}
+t <- colSums(counts[,phos_domains])
+p1 <- ggplot(data.table('domain' = names(t), 'count' = as.numeric(t)),
+        aes(x = reorder(domain, -count), y = count)) + geom_bar(aes(fill = log(count)), 
+                                                                stat = 'identity', show.legend = F) + 
+  labs(x = 'Phospho-domain', y = 'Number of proteins in the screen') + geom_hline(yintercept = 5)
+```
+
+```{r}
+candidates <- unique(arrayData[lfq.Phos.loose == '+']$uniprotAccession)
+# only considering domains that are found in at least 5 proteins in the screen 
+stats <- do.call(rbind, pbapply::pblapply(names(which(colSums(counts) > 5)), function(d) {
+  # find the number of proteins in the screen containing the domain 
+  bg_count <- sum(counts[,d]) #number of proteins in the screen containing the domain
+  phos_count <- sum(counts[candidates, d]) # number of proteins that are LFQ+ for phos peptide containing the domain 
+  exp_count <- length(candidates) * bg_count/nrow(counts) # number of proteins expected to observe among LFQ+ phos 
+  t <- binom.test(x = phos_count, n = length(candidates), p = bg_count / nrow(counts), alternative = 'greater') # p.value for hypergeometric test 
+  data.table('domain' = d, 'phos' = phos_count, 'expected' = exp_count, 'pval' = t$p.value)
+}))[order(pval)]
+
+
+p2 <- ggplot(stats[pval < 0.05], 
+        aes(x = reorder(domain, pval), y = -log10(pval))) + 
+  geom_bar(aes(fill = domain %in% phos_domains), 
+               stat = 'identity', show.legend = F) + coord_flip() + 
+  labs(x = 'Domain', y = '-log10(pval) (binomial test)') + 
+  scale_fill_brewer(type = 'qual', palette = 3) + 
+  geom_hline(yintercept = -log10(0.05))
 
 ```
 
-With this approach we find only 30 proteins with significant pvalues and most clans are found in only 1 or 2 proteins. 
-It is too sparse to do hypergeometric tests. 
 
+# using silac ratios to find candidates 
+
+With this approach, we rank the domains by the average silac ratios of lfq phos + interaction partners across peptides 
+
+```{r}
+
+# phos vs mut 
+phos_mut_dt <- arrayData[lfq.Phos.loose == '+', mean(phos_mut), by = 'uniprotAccession']
+
+# for each domain find proteins that contain the domain, get the mean silac ratios  
+stats_silac <- do.call(rbind, pbapply::pblapply(colnames(counts), function(d) {
+  selected <- names(which(counts[,d] == 1))
+  data.table::data.table('domain' = d, 'mean_phos_mut' = mean(phos_mut_dt[uniprotAccession %in% selected]$V1, na.rm = T))
+}))
+
+```
+
+Top-ranking domains in terms of the mean SILAC ratios phos/mut across peptides 
+
+```{r}
+p3 <- ggplot(stats_silac[order(mean_phos_mut, decreasing = T)][1:30], 
+             aes(x = reorder(domain, mean_phos_mut), y = mean_phos_mut)) + 
+  geom_bar(stat = 'identity', aes(fill = domain %in% phos_domains), show.legend = T) + coord_flip() + 
+  labs(x = 'Domain', y = 'Mean SILAC ratio (phos/mut) across peptides') + 
+  scale_fill_brewer(type = 'qual', palette = 3) + 
+  theme(legend.position = 'bottom')
+```
+
+
+```{r, fig.width=10, fig.height=7}
+cowplot::plot_grid(
+  cowplot::plot_grid(p1, p2, ncol = 1, labels = c('A', 'B')), 
+  p3, ncol = 2, labels = c('', 'C') 
+)
+ggsave(filename = 'phospho_domain_analysis.pdf', width = 12, height = 8)
+```
+
+
+# Summary
+
+- Only few SLiM-binding phospho-dependent domains are found in at least 5 proteins in the whole screen. (Panel A)
+- Among these 14-3-3 and SH2 domains are enriched (compared to the domain distribution of the full set of proteins detected in the screen) for interaction partners which are LFQ+ for the phosphorylated form of the peptides. (Panel B)
+- If we look into the average phos/mut SILAC ratios for the proteins which are LFQ+ for phoshorylated form of the peptides, we can see the 14-3-3, SH2, and WW make it among the top 30 domains. Other domains are potentially those that are likely to co-occur with phospho-dependent domains. But, this could serve as a list of potential phospho-recognition domains based on this screen. 
 
 # Session Info
 ```{r}
