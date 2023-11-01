@@ -245,12 +245,9 @@ cowplot::plot_grid(
 ggsave(filename = 'phospho_domain_analysis.pdf', width = 12, height = 8)
 ```
 
-
-# Summary
-
 - Only few SLiM-binding phospho-dependent domains are found in at least 5 proteins in the whole screen. (Panel A)
 - Among these 14-3-3 and SH2 domains are enriched (compared to the domain distribution of the full set of proteins detected in the screen) for interaction partners which are LFQ+ for the phosphorylated form of the peptides. (Panel B)
-- If we look into the average phos/mut SILAC ratios for the proteins which are LFQ+ for phoshorylated form of the peptides, we can see the 14-3-3, SH2, and WW make it among the top 30 domains. Other domains are potentially those that are likely to co-occur with phospho-dependent domains. But, this could serve as a list of potential phospho-recognition domains based on this screen. 
+- If we look into the average phos/mut SILAC ratios for the proteins which are LFQ+ for phoshorylated form of the peptides, we can see the 14-3-3, SH2, and WW make it among the top 30 domains. Other domains are potentially those that are likely to co-occur with phospho-dependent domains. But, this could serve as a list of potential phospho-recognition domains based on this screen. (Panel C)
 
 # Session Info
 ```{r}
