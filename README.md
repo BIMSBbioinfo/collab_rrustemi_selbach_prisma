@@ -15,7 +15,8 @@ See the manuscript on Biorxiv [here](https://www.biorxiv.org/content/10.1101/202
 if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 
-BiocManager::install(c('ggplot2', 'data.table', 'ggpubr', 'ComplexHeatmap', 'cowplot', 'parallel')
+BiocManager::install(c('ggplot2', 'data.table', 'ggpubr', 'ComplexHeatmap', 'cowplot', 'parallel', 'GenomicRanges', 'Biostrings', 'rmarkdown', 'knitr', 'pbapply'))
+
 ```
 
 ## Devtools 
