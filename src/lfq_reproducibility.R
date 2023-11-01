@@ -8,6 +8,8 @@ args <- commandArgs(trailingOnly = T)
 
 datadir <- args[1]
 
+data.table::setDTthreads(12)
+
 # import LFQ data 
 lfqData <- data.table::fread(file.path(datadir, 'LFQinteractions.txt'))
 
@@ -16,7 +18,8 @@ M <- as.matrix(lfqData[,-c(1:3)]) # remove non-numeric columns
 Mc <- cor(M, use = 'complete.obs')
 
 # reshape and process 
-dt <- data.table::data.table(data.table::melt(Mc))
+dt <- data.table::data.table(data.table::melt(as.data.table(Mc, keep.rownames = T)))
+colnames(dt)[1:2] <- c('Var1', 'Var2')
 dt <- dt[Var1 != Var2]
 
 dt$comp <- apply(dt, 1, function(x) paste(sort(x[1:2]), collapse = '_'))
