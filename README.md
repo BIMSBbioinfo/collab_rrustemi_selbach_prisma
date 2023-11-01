@@ -41,6 +41,22 @@ Output:
 figures/lfq_reproducibility.pdf
 ```
 
+## LFQ + SLiM Domain Analysis (excluding SILAC scores)
+
+The goal of this analysis is to inspect the LFQ scores in the context of SLiM-Domain
+interactions without considering the SILAC values.
+
+This analysis is done within an rmarkdown file which includes code, text, and figures.
+
+Usage:
+```
+/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/LFQ_slim_domain_analysis.Rmd')"
+```
+
+Output:
+```
+See figures/LFQ_slim_domain_analysis.html
+```
 
 ## SILAC + LFQ + SLiM-Domain Analysis
 
@@ -66,23 +82,6 @@ such as if the mutant peptide loses a slim-domain pair (as the mutation breaks t
 then we see an even increased difference in silac ratios for phos vs mut peptides. 
 ```
 See figures/slimDomain.phos_vs_mut_2.pdf
-```
-
-## LFQ + SLiM Domain Analysis (excluding SILAC scores)
-
-The goal of this analysis is to inspect the LFQ scores in the context of SLiM-Domain 
-interactions without considering the SILAC values. 
-
-This analysis is done within an rmarkdown file which includes code, text, and figures.
-
-Usage:
-```
-/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/LFQ_slim_domain_analysis.Rmd')"
-```
-
-Output:
-```
-See figures/LFQ_slim_domain_analysis.html 
 ```
 
 
