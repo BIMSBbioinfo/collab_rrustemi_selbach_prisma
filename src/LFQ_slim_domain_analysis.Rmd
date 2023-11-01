@@ -235,9 +235,11 @@ lfqMerged$phosDependentMotifs <- unlist(lapply(strsplit(lfqMerged$phos.slim_doma
 ggboxplot(lfqMerged[phosDependentMotifs > 0], x = 'type', y = 'value', color = 'type',
          add = 'jitter') + stat_compare_means(method.args = list('alternative' = 'greater'), 
                                                comparisons = list(c('phos', 'wt'),
-                                                                  c('phos', 'mut')))
+                                                                  c('phos', 'mut'))) + 
+  labs(title = 'LFQ score distributions of interactions explained by\nphospho-dependent-SLiM-Domain pairs',
+       x = 'peptide type', y = 'LFQ score')
 ggsave(filename = file.path(figureDir, 
-                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig_deg.pdf'), width = 10, height = 8)
+                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig_deg.pdf'), width = 5, height = 7)
 
 ```
 
@@ -246,9 +248,11 @@ If we also exclude the degron motifs, which require double phosphorylation, then
 ggboxplot(lfqMerged[phosDependentMotifs > 0][grep('DEG', phos.slim_domain_pairs, invert = T)], x = 'type', y = 'value', color = 'type',
          add = 'jitter') + stat_compare_means(method.args = list('alternative' = 'greater'), 
                                                comparisons = list(c('phos', 'wt'),
-                                                                  c('phos', 'mut')))
+                                                                  c('phos', 'mut'))) +
+    labs(title = 'LFQ score distributions of interactions explained by\nphospho-dependent-SLiM-Domain pairs',
+       x = 'peptide type', y = 'LFQ score')
 ggsave(filename = file.path(figureDir, 
-                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig.pdf'), width = 10, height = 8)
+                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig.pdf'), width = 5, height = 7)
 ```
 
 # Summary
