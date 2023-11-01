@@ -32,9 +32,7 @@ data.table::setDTthreads(12)
 
 # Motivation
 
-We'd like to find out if we can detect an enrichment of phospho-dependent binding domains enriched in the array data.
-
-We look for proteins that  
+We'd like to find out if we can detect an enrichment of phospho-dependent binding domains in the array data.
 
 # Data preparation
 
