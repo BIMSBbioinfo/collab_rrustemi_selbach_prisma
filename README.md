@@ -42,10 +42,10 @@ Output:
 figures/lfq_reproducibility.pdf
 ```
 
-## LFQ + SLiM Domain Analysis (excluding SILAC scores)
+## LFQ + SLiM Domain Analysis 
 
 The goal of this analysis is to inspect the LFQ scores in the context of SLiM-Domain
-interactions without considering the SILAC values.
+interactions. 
 
 This analysis is done within an rmarkdown file which includes code, text, and figures.
 
@@ -58,6 +58,24 @@ Output:
 ```
 See figures/LFQ_slim_domain_analysis.html
 ```
+
+## Phospho-dependent Domain Enrichment Analysis
+
+This analysis aims to observe if we can detect an enrichment of phospho-dependent binding domains in the array data
+among proteins that are preferentially binding to phosphorylated forms of the peptides. 
+
+Usage: 
+```
+/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/phospho_domain_discovery.Rmd')"
+```
+
+Output:
+```
+See figures/phospho_domain_analysis.pdf and figures/phospho_domain_discovery.html
+```
+
+
+
 
 ## SILAC + LFQ + SLiM-Domain Analysis
 
