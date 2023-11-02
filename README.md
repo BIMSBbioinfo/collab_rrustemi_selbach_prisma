@@ -9,7 +9,22 @@ See the manuscript on Biorxiv [here](https://www.biorxiv.org/content/10.1101/202
 
 # Dependencies
 
-## CRAN and Bioconductor Packages
+## Using `renv` package 
+
+You can create an environment using the environment snapshot file `renv.lock` in the existing repo folder. 
+```
+/opt/R/4.2/bin/Rscript -e "library(renv); renv::init(); renv::restore()"
+```
+
+To deactivate the session
+```
+/opt/R/4.2/bin/Rscript -e "renv::deactivate()"
+```
+
+
+## Manual Installation
+
+### CRAN and Bioconductor Packages
 
 ```
 if (!require("BiocManager", quietly = TRUE))
@@ -19,7 +34,7 @@ BiocManager::install(c('ggplot2', 'data.table', 'ggpubr', 'ComplexHeatmap', 'cow
 
 ```
 
-## Devtools 
+### Devtools 
 
 ```
 install.packages('devtools') 
@@ -34,7 +49,7 @@ Here we computing the reproducibility of LFQ scores within and between replicate
 
 Usage:
 ```
-/opt/R/4.2/bin/Rscript src/lfq_reproducibility.R ./data
+/opt/R/4.2/bin/Rscript src/lfq_reproducibility.R ./data `pwd` 
 ```
 
 Output:
@@ -51,12 +66,18 @@ This analysis is done within an rmarkdown file which includes code, text, and fi
 
 Usage:
 ```
-/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/LFQ_slim_domain_analysis.Rmd')"
+/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/LFQ_slim_domain_analysis.Rmd', output_dir = './figures')"
 ```
 
 Output:
 ```
-See figures/LFQ_slim_domain_analysis.html
+- figures/LFQ_slim_domain_analysis.html
+- figures/lfq_zscore_phos_vs_wt_vs_mut.doc_lig.pdf  
+- figures/lfq_zscore_phos_vs_wt_vs_mut.doc_lig_deg.pdf  
+- figures/lfq_zscore_vs_slimdomain_interactions.pdf
+- tables/LFQinteractions.scaled_by_peptide.tsv  
+- tables/LFQscaled_slim_domain_interactions.tsv
+
 ```
 
 ## Phospho-dependent Domain Enrichment Analysis
@@ -66,7 +87,7 @@ among proteins that are preferentially binding to phosphorylated forms of the pe
 
 Usage: 
 ```
-/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/phospho_domain_discovery.Rmd')"
+/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/phospho_domain_discovery.Rmd', output_dir = './figures')"
 ```
 
 Output:
@@ -84,7 +105,7 @@ domains in the interaction partners.
 
 Usage:
 ```
-/opt/R/4.2/bin/Rscript ./src/silac_lfq_slim_domain_analysis.R ./data/
+/opt/R/4.2/bin/Rscript ./src/silac_lfq_slim_domain_analysis.R ./data/ `pwd`
 ```  
 
 We looked for slims in the peptides and PFAM domains found in the interaction partners that can 
