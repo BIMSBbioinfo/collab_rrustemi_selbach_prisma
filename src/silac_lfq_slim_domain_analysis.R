@@ -11,6 +11,15 @@ ggplot2::theme_set(ggpubr::theme_pubclean())
 args <- commandArgs(trailingOnly = T)
 
 datadir <- args[1]
+outdir <- args[2]
+
+if(is.na(datadir)) {stop("Provide a path to data folder")}
+if(is.na(outdir)) {stop("Provide a path to output folder")}
+if(!dir.exists(datadir)) {stop(datadir, "doesn't exist")}
+if(!dir.exists(outdir)) {stop(outdir, "doesn't exist")}
+
+figuredir <- file.path(outdir, "figures")
+if (!dir.exists(figuredir)) { dir.create(figuredir) }
 
 data.table::setDTthreads(threads = 12)
 
@@ -134,7 +143,8 @@ p2 <- ggpubr::ggboxplot(arrayData, y = 'wt_phos', add = 'jitter', color = 'lfq.P
 
 p <- cowplot::plot_grid(p1, p2, align = 'h')
 
-ggsave(filename = 'slimDomain.wt_vs_phos.pdf', plot = p,
+ggsave(filename = file.path(figuredir, 'slimDomain.wt_vs_phos.pdf'), 
+       plot = p,
        units = 'in', width = 10, height = 8)
 
 p3 <- ggpubr::ggboxplot(dt, y = 'phos_mut', add = 'jitter', color = 'lfq.Phos.loose') +
@@ -155,7 +165,8 @@ p4 <- ggpubr::ggboxplot(arrayData, y = 'phos_mut', add = 'jitter', color = 'lfq.
 
 
 p <- cowplot::plot_grid(p3, p4)
-ggsave(filename = 'slimDomain.phos_vs_mut_1.pdf', plot = p,
+ggsave(filename = file.path(figuredir, 'slimDomain.phos_vs_mut_1.pdf'), 
+       plot = p,
        units = 'in', width = 10, height = 8)
 
 
@@ -168,5 +179,6 @@ p5 <- ggpubr::ggboxplot(dt, y = 'phos_mut', add = 'jitter', facet.by = 'lfq.Phos
   theme(axis.title.x = element_blank(), axis.text.x = element_blank()) +
   scale_color_brewer(type = 'qual', palette = 1)
 
-ggsave(filename = 'slimDomain.phos_vs_mut_2.pdf', plot = p5,
+ggsave(filename = file.path(figuredir, 'slimDomain.phos_vs_mut_2.pdf'), 
+        plot = p5,
        units = 'in', width = 10, height = 8)

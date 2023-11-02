@@ -9,6 +9,9 @@ output:
     code_folding: hide
     theme: united
 author: Bora Uyar
+params: 
+  datadir: '../data'
+  outdir: '..'
 ---
 
 `r date()`
@@ -27,6 +30,15 @@ suppressPackageStartupMessages(library(cowplot))
 
 ggplot2::theme_set(ggpubr::theme_pubclean())
 data.table::setDTthreads(12)
+
+datadir <- params$datadir
+outdir <- params$outdir
+
+if(!dir.exists(datadir)) {stop(datadir, "doesn't exist")}
+if(!dir.exists(outdir)) {stop(outdir, "doesn't exist")}
+
+figureDir <- file.path(outdir, "figures")
+if(!dir.exists(figureDir)) {dir.create(figureDir)}
 ```
 
 
@@ -38,7 +50,6 @@ We'd like to find out if we can detect an enrichment of phospho-dependent bindin
 
 Importing and processing peptide info:
 ```{r }
-datadir <- '../data/'
 peptides <- data.table::fread(file.path(datadir,  'PeptideCandidates1.txt'))
 peptides$type <- 'wt'
 peptides[grepl('_', peptides$Name)]$type <- 'mut'
@@ -242,7 +253,8 @@ cowplot::plot_grid(
   cowplot::plot_grid(p1, p2, ncol = 1, labels = c('A', 'B')), 
   p3, ncol = 2, labels = c('', 'C') 
 )
-ggsave(filename = 'phospho_domain_analysis.pdf', width = 12, height = 8)
+ggsave(filename = file.path(figureDir, 'phospho_domain_analysis.pdf'), 
+       width = 12, height = 8)
 ```
 
 - Only few SLiM-binding phospho-dependent domains are found in at least 5 proteins in the whole screen. (Panel A)

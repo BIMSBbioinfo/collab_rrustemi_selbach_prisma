@@ -7,6 +7,12 @@ library(ggpubr)
 args <- commandArgs(trailingOnly = T)
 
 datadir <- args[1]
+outdir <- args[2]
+
+if(is.na(datadir)) {stop("Provide a path to data folder")}
+if(is.na(outdir)) {stop("Provide a path to output folder")}
+if(!dir.exists(datadir)) {stop(datadir, "doesn't exist")}
+if(!dir.exists(outdir)) {stop(outdir, "doesn't exist")}
 
 data.table::setDTthreads(12)
 
@@ -37,4 +43,8 @@ p <- ggviolin(dt2, x = 'replicates', y = 'value', fill = 'replicates') +
   scale_fill_brewer(type = 'qual', palette = 3) +
   theme(axis.text = element_text(size = 14), axis.title = element_text(size = 16))
 
-ggsave(plot = p, "lfq_reproducibility.pdf", width = 9.42, height = 8.4, units = 'in')
+figuredir <- file.path(outdir, "figures")
+if (!dir.exists(figuredir)) { dir.create(figuredir) }
+
+ggsave(plot = p, file.path(figuredir, "lfq_reproducibility.pdf"), 
+       width = 9.42, height = 8.4, units = 'in')

@@ -41,10 +41,15 @@ suppressPackageStartupMessages(library(cowplot))
 data.table::setDTthreads(12)
 ggplot2::theme_set(ggpubr::theme_pubclean())
 datadir <- '../data'
-figureDir <- '../figures'
-tableDir <- '../tables'
+outdir <- '..'
 
-knitr::opts_knit$set(root.dir = figureDir)
+if(!dir.exists(datadir)) {stop(datadir, "doesn't exist")}
+if(!dir.exists(outdir)) {stop(outdir, "doesn't exist")}
+
+figureDir <- file.path(outdir, "figures")
+tableDir <- file.path(outdir, "tables")
+if(!dir.exists(figureDir)) {dir.create(figureDir)}
+if(!dir.exists(tableDir)) {dir.create(tableDir)}
 ```
 
 Importing and processing peptide info:
@@ -83,7 +88,7 @@ Get LFQ data, process protein ids, cleanup, assign uniprot ids, get mean LFQ val
 #import LFQ interaction results 
 lfqData <- fread(file.path(datadir, 'LFQinteractions.txt'))
 # simplify uniprot accession/gene name fields => remove unreviewed ids and keep only one per row
-cl <- parallel::makeCluster(10)
+cl <- parallel::makeCluster(4)
 parallel::clusterExport(cl, varlist = c('lfqData', 'uniprot2geneName'))
 s <- pbapply::pbsapply(cl = cl, strsplit(lfqData$Protein.IDs, ";"), function(x) {
   # pick first match
@@ -104,7 +109,7 @@ lfqData$Expgroup <- gsub("\\.[0-9]+$", "", gsub("(wt|phos|mut)", "", lfqData$var
 lfqData <- lfqData[,mean(value, na.rm = T), by = c('uniprotAccession', 'type', 'Expgroup')][!is.na(V1)]
 ```
 
-Import PFAM annotations from Uniprot and download ELM-PFAM interaction information
+Import PFAM annotations from Uniprot and ELM-PFAM interaction information
 ```{r elm2pfam}
 message("importing PFAM domains")
 uniprot2pfam <- readRDS(file.path(datadir, 'uniprot2pfam.RDS'))
@@ -156,38 +161,19 @@ slimDomainInteractions$Expgroup <- as.character(slimDomainInteractions$Expgroup)
 
 # Normalize LFQ score across peptides
 
-Melt the table into matrix form. 
+Melt the table into matrix form. Scaling each row, assigns z-scores to each protein (normalizing w.r.t other peptides)
+
 ```{r}
 x <- dcast(lfqData, Expgroup + type ~ uniprotAccession, value.var = 'V1')
 M <- as.matrix(data.frame(x[,-c(1,2)], row.names = paste(x$Expgroup, x$type, sep = '_')))
-```
-
-A lot of the proteins have NA values. `quantile(lfqData$V1, 1:1000/1000)` shows that 999/1000 pulldowns return a value higher than 15.7.
-So, I set NA LFQ values to this value, basically assuming LFQ of 15 is not pulled down.
-```{r}
-M[is.na(M)] <- 15.7
-```
-
-## Before normalising by peptide
-
-We can observe that some proteins will have high LFQ values for all peptides, while some proteins will have low LFQ values for all peptides. Normalizing the LFQ values to z-scores w.r.t overall interactions, allows us to make them comparable. 
-
-```{r}
-ComplexHeatmap::Heatmap(t(M), name = 'LFQ scores across peptides', row_title = 'Proteins', column_title = 'Peptides', use_raster = F, show_row_names = F, show_column_names = F)
-```
-
-## After normalising by peptide
-Scaling each row, assigns z-scores to each protein (normalizing w.r.t other peptides)
-```{r }
+# replace NA values with value from first permille 
+M[is.na(M)] <- as.numeric(quantile(lfqData$V1, 1:1000/1000)[1])
 M <- t(scale(M)) # (each protein is normalised w.r.t other peptides)
-ComplexHeatmap::Heatmap(M, name = 'LFQ scores across peptides', row_title = 'Proteins', column_title = 'Peptides', use_raster = F, show_row_names = F, show_column_names = F)
 write.table(M, file = file.path(tableDir, 
                                 'LFQinteractions.scaled_by_peptide.tsv'),
             sep = '\t', quote = F)
 ```
 
-Now, we can see blocks of red cells that have high z-scores for groups of proteins. 
-Now, we check if known SLiM-Domain interactions are enriched in such "red" blocks. 
 
 ## Combining LFQ data with slim-domain pairs
 
@@ -196,10 +182,10 @@ distribution of z-scores for those categorized by whether the slim-domain intera
 have higher z-scores overall. 
 
 ```{r}
-lfqScaled <- data.table(melt(M))
-lfqScaled$Expgroup <- unlist(lapply(strsplit(as.character(lfqScaled$Var2), "_"), function(a) a[1]))
-lfqScaled$type <- unlist(lapply(strsplit(as.character(lfqScaled$Var2), "_"), function(a) a[2]))
-lfqScaled$Var2 <- NULL
+lfqScaled <- data.table::melt(as.data.table(M, keep.rownames = T), measure.vars = colnames(M))
+lfqScaled$Expgroup <- unlist(lapply(strsplit(as.character(lfqScaled$variable), "_"), function(a) a[1]))
+lfqScaled$type <- unlist(lapply(strsplit(as.character(lfqScaled$variable), "_"), function(a) a[2]))
+lfqScaled$variable <- NULL
 colnames(lfqScaled)[1] <- 'uniprotAccession'
 
 # see if interactions explained by slim-domain pairs
@@ -211,8 +197,9 @@ lfqMerged[type == 'wt'][!is.na(wt.slim_domain_pairs)]$paired <- TRUE
 lfqMerged[type == 'mut'][!is.na(mut.slim_domain_pairs)]$paired <- TRUE
 lfqMerged[type == 'phos'][!is.na(phos.slim_domain_pairs)]$paired <- TRUE
 
-write.table(lfqMerged, file = file.path(tableDir, 
-                                        'LFQscaled_slim_domain_interactions.tsv'), sep = '\t', quote = F)
+write.table(lfqMerged[paired == TRUE], 
+            file = file.path(tableDir, 'LFQscaled_slim_domain_interactions.tsv'), 
+            sep = '\t', quote = F)
 
 ```
 
@@ -230,7 +217,8 @@ Therefore, we categorize slim-domain pairs by if the peptide has a phosphorylati
 ```{r}
 pat <- "(\\(\\[[ST]+\\]\\)|\\([YTS]\\))"
 e <- names(grep(pat, unlist(elms[grep('MOD|TRG|CLV', names(elms), invert = T)]), value = T))
-lfqMerged$phosDependentMotifs <- unlist(lapply(strsplit(lfqMerged$phos.slim_domain_pairs, "; "), function(x) sum(gsub("^.+->", "", x) %in% e)))
+lfqMerged$phosDependentMotifs <- unlist(lapply(strsplit(lfqMerged$phos.slim_domain_pairs, "; "), 
+                                               function(x) sum(gsub("^.+->", "", x) %in% e)))
 
 ggboxplot(lfqMerged[phosDependentMotifs > 0], x = 'type', y = 'value', color = 'type',
          add = 'jitter') + stat_compare_means(method.args = list('alternative' = 'greater'), 
@@ -239,7 +227,8 @@ ggboxplot(lfqMerged[phosDependentMotifs > 0], x = 'type', y = 'value', color = '
   labs(title = 'LFQ score distributions of interactions explained by\nphospho-dependent-SLiM-Domain pairs',
        x = 'peptide type', y = 'LFQ score')
 ggsave(filename = file.path(figureDir, 
-                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig_deg.pdf'), width = 5, height = 7)
+                            'lfq_zscore_phos_vs_wt_vs_mut.doc_lig_deg.pdf'), 
+       width = 5, height = 7)
 
 ```
 
