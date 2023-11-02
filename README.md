@@ -16,7 +16,7 @@ git clone git@github.com:BIMSBbioinfo/collab_rrustemi_selbach_prisma.git
 
 # Managing Dependencies
 
-To run the scripts within this repo, you need an `R (version >= 4.2)`. 
+To run the scripts within this repo, you need an `R (version >= 4.2)` installation. 
 
 ## Using `renv` package 
 
