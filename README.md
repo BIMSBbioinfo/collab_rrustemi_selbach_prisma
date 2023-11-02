@@ -7,22 +7,45 @@ Data and scripts related to short linear motif analyses for the collaboration pr
 
 See the manuscript on Biorxiv [here](https://www.biorxiv.org/content/10.1101/2023.08.01.551433v1.full).
 
-# Dependencies
+# Installation
+
+Clone the repo: 
+```
+git clone git@github.com:BIMSBbioinfo/collab_rrustemi_selbach_prisma.git
+```
+
+# Managing Dependencies
+
+To run the scripts within this repo, you need an `R (version >= 4.2)`. 
 
 ## Using `renv` package 
 
 You can create an environment using the environment snapshot file `renv.lock` in the existing repo folder. 
+However, this requires the `renv` packaged to be installed. 
+
 ```
-/opt/R/4.2/bin/Rscript -e "library(renv); renv::init(); renv::restore()"
+# create an R session
+R
+# install the renv package
+install.packages('renv')
+```
+
+Once, `renv` is installed, you can use the `renv.lock` file in the repo to restore the snapshot of
+the environment with all the necessary packages. 
+
+```
+Rscript -e "library(renv); renv::init(); renv::restore()"
 ```
 
 To deactivate the session
 ```
-/opt/R/4.2/bin/Rscript -e "renv::deactivate()"
+Rscript -e "renv::deactivate()"
 ```
 
 
 ## Manual Installation
+
+Alternatively, the dependencies can be installed using `BiocManager` and `devtools` packages.  
 
 ### CRAN and Bioconductor Packages
 
@@ -49,7 +72,7 @@ Here we computing the reproducibility of LFQ scores within and between replicate
 
 Usage:
 ```
-/opt/R/4.2/bin/Rscript src/lfq_reproducibility.R ./data `pwd` 
+Rscript src/lfq_reproducibility.R ./data `pwd` 
 ```
 
 Output:
@@ -66,7 +89,7 @@ This analysis is done within an rmarkdown file which includes code, text, and fi
 
 Usage:
 ```
-/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/LFQ_slim_domain_analysis.Rmd', output_dir = './figures')"
+Rscript -e "rmarkdown::render('src/LFQ_slim_domain_analysis.Rmd', output_dir = './figures')"
 ```
 
 Output:
@@ -87,7 +110,7 @@ among proteins that are preferentially binding to phosphorylated forms of the pe
 
 Usage: 
 ```
-/opt/R/4.2/bin/Rscript -e "rmarkdown::render('src/phospho_domain_discovery.Rmd', output_dir = './figures')"
+Rscript -e "rmarkdown::render('src/phospho_domain_discovery.Rmd', output_dir = './figures')"
 ```
 
 Output:
