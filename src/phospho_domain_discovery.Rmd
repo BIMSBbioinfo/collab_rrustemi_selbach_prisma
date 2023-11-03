@@ -261,6 +261,35 @@ ggsave(filename = file.path(figureDir, 'phospho_domain_analysis.pdf'),
 - Among these 14-3-3 and SH2 domains are enriched (compared to the domain distribution of the full set of proteins detected in the screen) for interaction partners which are LFQ+ for the phosphorylated form of the peptides. (Panel B)
 - If we look into the average phos/mut SILAC ratios for the proteins which are LFQ+ for phoshorylated form of the peptides, we can see the 14-3-3, SH2, and WW make it among the top 30 domains. Other domains are potentially those that are likely to co-occur with phospho-dependent domains. But, this could serve as a list of potential phospho-recognition domains based on this screen. (Panel C)
 
+
+# Co-occurrence stats of domains in the screen
+
+We'd like to see which non-phospho-dependent domains co-occur the most with phospho-dependent 
+domains. 
+
+```{r}
+# for each peptide and for each domain, count number of proteins that contain the domain
+dt <- cbind(lfqData, counts[lfqData$uniprotAccession,])
+mdt <- data.table::melt.data.table(dt, measure.vars = colnames(counts))
+peptides_domains <- mdt[,sum(value),by = c('type', 'variable', 'Expgroup')]
+# remove domains that are not found at all 
+m <- dcast.data.table(peptides_domains, type + Expgroup ~ variable, value.var = 'V1')
+m <- as.matrix(data.frame(m[,-c(1:2)], row.names = paste0(m$Expgroup, "_", m$type), check.names = F))
+
+# compute correlation of "SH2" vs all other domains 
+# remove uninformative domains 
+m <- m[,names(which(apply(m, 2, sd) > 0))]
+s <- stats_silac[order(mean_phos_mut, decreasing = T)][1:30]$domain
+corrplot::corrplot(cor(m[,s]), method = 'ellipse', 
+                   order = 'hclust', addrect = 6)
+p <- recordPlot()
+pdf(file = file.path(figureDir, "domain_correlation.pdf"), width = 9, height = 9)
+replayPlot(p)
+dev.off()
+```
+
+Above, we computed the domain co-occurrence for the top 30 domains in the phosphodomain analysis figure (panel B). As expected, the top non-phospho-dependent domains (in particular SH3) actually highly correlate with SH2 domain. Another interesting point is 14-3-3 and SH2 seem to be anti-correlated.
+
 # Session Info
 ```{r}
 print(sessionInfo())
