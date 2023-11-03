@@ -128,7 +128,7 @@ domains in the interaction partners.
 
 Usage:
 ```
-/opt/R/4.2/bin/Rscript ./src/silac_lfq_slim_domain_analysis.R ./data/ `pwd`
+Rscript ./src/silac_lfq_slim_domain_analysis.R ./data/ `pwd`
 ```  
 
 We looked for slims in the peptides and PFAM domains found in the interaction partners that can 
