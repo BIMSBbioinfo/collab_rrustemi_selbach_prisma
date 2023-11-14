@@ -1596,7 +1596,7 @@ div.tocify {
 </div>
 
 
-<p>Fri Nov 3 14:37:20 2023</p>
+<p>Tue Nov 14 18:31:10 2023</p>
 <div id="motivation" class="section level1" number="1">
 <h1 number="1"><span class="header-section-number">1</span> Motivation</h1>
 <p>The goal of this analysis is to inspect the LFQ scores in the context of SLiM-Domain interactions without considering the SILAC values.</p>
@@ -1790,28 +1790,55 @@ ggboxplot(lfqMerged[phosDependentMotifs &gt; 0], x = &#39;type&#39;, y = &#39;va
 <p>We also break the interactions into groups based on the detected domain types in the interaction partners and compare LFQ scores slim-domain-paired interactions with the background.</p>
 <pre class="r"><code># get top pfam domains with most detected interaction partners in the screen 
 # the domains must be known to be an elm-interacting domain and must be found in proteins detected in the screen. 
-domains &lt;- uniprot2pfam[NAME %in% elm2pfam$Interaction_Domain_Name, length(unique(uniprotAccession)),by = NAME][order(V1, decreasing = T)][1:20]$NAME
-# exclude domains that are never paired by slim-domain interactions in the screen
-domains_paired_count &lt;- sapply(domains, function(d) {
+domains_paired_count &lt;- sapply(unique(elm2pfam$Interaction_Domain_Name), function(d) {
   dt &lt;- lfqMerged[uniprotAccession %in% uniprot2pfam[NAME == d]$uniprotAccession]
   sum(dt$paired)
 })
 # select those that are paired in at least 10 interactions 
-domains &lt;- names(which(domains_paired_count &gt; 10))
+domains &lt;- names(sort(domains_paired_count, decreasing = T)[1:10]) #names(which(domains_paired_count &gt; 10))
 
 # find proteins in the whole screen that contain the domain
 plots &lt;- sapply(simplify = F, domains, function(d) {
   dt &lt;- lfqMerged[uniprotAccession %in% uniprot2pfam[NAME == d]$uniprotAccession]
-  ggboxplot(dt, y = &#39;value&#39;, color = &#39;paired&#39;, add = &#39;jitter&#39;, facet.by = &#39;type&#39;, nrow = 1) +
-    labs(x = &#39;LFQ z-score&#39;, fill = &#39;SLiM-Domain Interaction&#39;, 
-         title = paste(d, &quot;domain&quot;)) + 
+  # Check if the paired interactions are actually explainable
+  # by both the presence of the domain in the interaction partner
+  # and the presence of a cognate motif in the peptide. 
+  # check if a motif-domain pair is defined for the correct peptide form 
+  dt$specific_paired &lt;- FALSE
+  slims &lt;- NA
+  for (peptide_type in c(&#39;mut&#39;, &#39;phos&#39;, &#39;wt&#39;)) {
+    # assigned domain-paired to TRUE
+    slimfield &lt;- paste0(peptide_type,&quot;.slim_domain_pairs&quot;)
+    dt[type == peptide_type][grepl(paste0(d,&quot;-&gt;&quot;), get(slimfield))]$specific_paired &lt;- TRUE
+    # extract list of motifs in the peptides: 
+    dt_sub &lt;- dt[type == peptide_type][grepl(paste0(d,&quot;-&gt;&quot;), get(slimfield))]
+    slims &lt;- c(slims, unique(gsub(&quot;-&gt;&quot;, &quot;&quot;, unlist(stringi::stri_extract_all(str = unlist(strsplit(dt_sub[[slimfield]], &quot;;&quot;)), 
+                                                                                            regex = &quot;-&gt;.+&quot;)))))
+  }
+  slims &lt;- unique(slims[!is.na(slims)])
+  
+  if(nrow(dt[specific_paired == TRUE]) &gt; 10) {
+      ggboxplot(dt, y = &#39;value&#39;, color = &#39;specific_paired&#39;, add = &#39;jitter&#39;, facet.by = &#39;type&#39;, nrow = 1) +
+    labs(x = &#39;LFQ z-score&#39;, fill = &#39;SLiM-Domain Interaction&#39;) + 
+    ggtitle(label = paste(d, &quot;domain&quot;), 
+            subtitle = paste(strwrap(paste(slims, collapse = &#39;; &#39;), width = 40), collapse = &#39;\n&#39;)) +
     geom_hline(yintercept = 0, linewidth = 2, alpha = 0.2) + 
-    scale_color_brewer(type = &#39;qual&#39;, palette = 3)
+    scale_color_brewer(type = &#39;qual&#39;, palette = 3)  
+  } else {
+    return(NULL)
+  }
 })
+
+plots &lt;- plots[!unlist(lapply(plots, is.null))]
 
 p &lt;- cowplot::plot_grid(plotlist = plots, ncol = 3, labels = &#39;AUTO&#39;)
 ggsave(plot = p, filename = file.path(figureDir, &quot;lfq_dist_by_top_domains.pdf&quot;), 
-       units = &#39;in&#39;, width = 12, height = 12)</code></pre>
+       units = &#39;in&#39;, width = 12, height = 12)
+# only plot 14-3-3, WW, SH3, and SH2 domains 
+p &lt;- cowplot::plot_grid(plotlist = plots[c(&#39;14-3-3&#39;, &#39;WW&#39;, &#39;SH2&#39;, &#39;SH3_1&#39;)], 
+                        ncol = 2, labels = &#39;AUTO&#39;)
+ggsave(plot = p, filename = file.path(figureDir, &quot;lfq_dist_by_top_domains.subset.pdf&quot;), 
+       units = &#39;in&#39;, width = 10, height = 8)</code></pre>
 </div>
 </div>
 <div id="summary" class="section level1" number="5">
@@ -1821,13 +1848,13 @@ ggsave(plot = p, filename = file.path(figureDir, &quot;lfq_dist_by_top_domains.p
 <div id="session-info" class="section level1" number="6">
 <h1 number="6"><span class="header-section-number">6</span> Session Info</h1>
 <pre class="r"><code>print(sessionInfo())</code></pre>
-<pre><code>## R version 4.3.1 (2023-06-16)
+<pre><code>## R version 4.3.2 (2023-10-31)
 ## Platform: x86_64-pc-linux-gnu (64-bit)
-## Running under: Ubuntu 22.04.2 LTS
+## Running under: Ubuntu 22.04.3 LTS
 ## 
 ## Matrix products: default
-## BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.10.0 
-## LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.10.0
+## BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 
+## LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.20.so;  LAPACK version 3.10.0
 ## 
 ## locale:
 ##  [1] LC_CTYPE=C.UTF-8       LC_NUMERIC=C           LC_TIME=C.UTF-8       
@@ -1850,11 +1877,11 @@ ggsave(plot = p, filename = file.path(figureDir, &quot;lfq_dist_by_top_domains.p
 ##  [1] shape_1.4.6            circlize_0.4.15        gtable_0.3.4          
 ##  [4] rjson_0.2.21           xfun_0.40              bslib_0.5.1           
 ##  [7] GlobalOptions_0.1.2    rstatix_0.7.2          vctrs_0.6.4           
-## [10] tools_4.3.1            bitops_1.0-7           generics_0.1.3        
-## [13] stats4_4.3.1           tibble_3.2.1           fansi_1.0.5           
+## [10] tools_4.3.2            bitops_1.0-7           generics_0.1.3        
+## [13] stats4_4.3.2           tibble_3.2.1           fansi_1.0.5           
 ## [16] highr_0.10             cluster_2.1.4          pkgconfig_2.0.3       
 ## [19] RColorBrewer_1.1-3     S4Vectors_0.36.2       lifecycle_1.0.3       
-## [22] GenomeInfoDbData_1.2.9 farver_2.1.1           compiler_4.3.1        
+## [22] GenomeInfoDbData_1.2.9 farver_2.1.1           compiler_4.3.2        
 ## [25] stringr_1.5.0          Biostrings_2.66.0      munsell_0.5.0         
 ## [28] codetools_0.2-19       clue_0.3-65            carData_3.0-5         
 ## [31] GenomeInfoDb_1.34.9    htmltools_0.5.6.1      sass_0.4.7            

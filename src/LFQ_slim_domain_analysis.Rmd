@@ -250,28 +250,56 @@ We also break the interactions into groups based on the detected domain types in
 ```{r}
 # get top pfam domains with most detected interaction partners in the screen 
 # the domains must be known to be an elm-interacting domain and must be found in proteins detected in the screen. 
-domains <- uniprot2pfam[NAME %in% elm2pfam$Interaction_Domain_Name, length(unique(uniprotAccession)),by = NAME][order(V1, decreasing = T)][1:20]$NAME
-# exclude domains that are never paired by slim-domain interactions in the screen
-domains_paired_count <- sapply(domains, function(d) {
+domains_paired_count <- sapply(unique(elm2pfam$Interaction_Domain_Name), function(d) {
   dt <- lfqMerged[uniprotAccession %in% uniprot2pfam[NAME == d]$uniprotAccession]
   sum(dt$paired)
 })
 # select those that are paired in at least 10 interactions 
-domains <- names(which(domains_paired_count > 10))
+domains <- names(sort(domains_paired_count, decreasing = T)[1:10]) #names(which(domains_paired_count > 10))
 
 # find proteins in the whole screen that contain the domain
 plots <- sapply(simplify = F, domains, function(d) {
   dt <- lfqMerged[uniprotAccession %in% uniprot2pfam[NAME == d]$uniprotAccession]
-  ggboxplot(dt, y = 'value', color = 'paired', add = 'jitter', facet.by = 'type', nrow = 1) +
-    labs(x = 'LFQ z-score', fill = 'SLiM-Domain Interaction', 
-         title = paste(d, "domain")) + 
+  # Check if the paired interactions are actually explainable
+  # by both the presence of the domain in the interaction partner
+  # and the presence of a cognate motif in the peptide. 
+  # check if a motif-domain pair is defined for the correct peptide form 
+  dt$specific_paired <- FALSE
+  slims <- NA
+  for (peptide_type in c('mut', 'phos', 'wt')) {
+    # assigned domain-paired to TRUE
+    slimfield <- paste0(peptide_type,".slim_domain_pairs")
+    dt[type == peptide_type][grepl(paste0(d,"->"), get(slimfield))]$specific_paired <- TRUE
+    # extract list of motifs in the peptides: 
+    dt_sub <- dt[type == peptide_type][grepl(paste0(d,"->"), get(slimfield))]
+    slims <- c(slims, unique(gsub("->", "", unlist(stringi::stri_extract_all(str = unlist(strsplit(dt_sub[[slimfield]], ";")), 
+                                                                                            regex = "->.+")))))
+  }
+  slims <- unique(slims[!is.na(slims)])
+  
+  if(nrow(dt[specific_paired == TRUE]) > 10) {
+      ggboxplot(dt, y = 'value', color = 'specific_paired', add = 'jitter', facet.by = 'type', nrow = 1) +
+    labs(x = 'LFQ z-score', fill = 'SLiM-Domain Interaction') + 
+    ggtitle(label = paste(d, "domain"), 
+            subtitle = paste(strwrap(paste(slims, collapse = '; '), width = 40), collapse = '\n')) +
     geom_hline(yintercept = 0, linewidth = 2, alpha = 0.2) + 
-    scale_color_brewer(type = 'qual', palette = 3)
+    scale_color_brewer(type = 'qual', palette = 3)  
+  } else {
+    return(NULL)
+  }
 })
+
+plots <- plots[!unlist(lapply(plots, is.null))]
 
 p <- cowplot::plot_grid(plotlist = plots, ncol = 3, labels = 'AUTO')
 ggsave(plot = p, filename = file.path(figureDir, "lfq_dist_by_top_domains.pdf"), 
        units = 'in', width = 12, height = 12)
+# only plot 14-3-3, WW, SH3, and SH2 domains 
+p <- cowplot::plot_grid(plotlist = plots[c('14-3-3', 'WW', 'SH2', 'SH3_1')], 
+                        ncol = 2, labels = 'AUTO')
+ggsave(plot = p, filename = file.path(figureDir, "lfq_dist_by_top_domains.subset.pdf"), 
+       units = 'in', width = 10, height = 8)
+
 ```
 
 # Summary
