@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/712373714.svg)](https://zenodo.org/doi/10.5281/zenodo.10786077)
+
 # Description
 
 Data and scripts related to short linear motif analyses for the collaboration project titled 
