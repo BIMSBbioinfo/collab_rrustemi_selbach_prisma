@@ -7,7 +7,9 @@ Data and scripts related to short linear motif analyses for the collaboration pr
 
 # Publications
 
-See the manuscript on Biorxiv [here](https://www.biorxiv.org/content/10.1101/2023.08.01.551433v1.full).
+The paper has been published at [Nature Communications](https://www.nature.com/articles/s41467-024-46794-8).
+
+See also the manuscript on Biorxiv [here](https://www.biorxiv.org/content/10.1101/2023.08.01.551433v1.full).
 
 # Installation
 
